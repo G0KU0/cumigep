@@ -16,7 +16,7 @@ const app = express();
 app.use(bodyParser.json());
 app.use(cors());
 
-// KÉT LISTÁT HASZNÁLUNK MOSTANTÓL:
+// KÉT LISTÁT HASZNÁLUNK:
 let gameQueue = [];   // Ez a játéké (törlődik olvasás után)
 let fullHistory = []; // Ez a weboldalé (NEM törlődik, itt látod a logot)
 let typingUsers = {};
@@ -53,15 +53,17 @@ client.once("ready", async () => {
   } catch (error) { console.error(error); }
 });
 
-// Üzenet hozzáadása mindkét listához
+// EGY FÜGGVÉNY KEZELI A HOZZÁADÁST MINDKÉT LISTÁHOZ
 function addToQueues(name, text) {
     const msgObj = { name: name, text: text, time: new Date().toLocaleTimeString() };
     
-    // 1. Játéknak
+    // 1. Játéknak (hogy megjelenjen)
     gameQueue.push(msgObj);
     
-    // 2. Webes naplónak (Maximum 20 db-ot tárolunk)
+    // 2. Webes naplónak (hogy te is lásd böngészőben)
     fullHistory.push(msgObj);
+    
+    // Csak az utolsó 20 üzenetet tartjuk meg a weboldalon, hogy ne teljen be a memória
     if (fullHistory.length > 20) fullHistory.shift();
     
     console.log("Uj uzenet bekerult:", name, text);
@@ -75,7 +77,7 @@ client.on('interactionCreate', async interaction => {
         }
         const msgContent = interaction.options.getString('szoveg');
         
-        // HOZZÁADJUK A LISTÁHOZ
+        // ELMENTJÜK
         addToQueues("SYSTEM", msgContent);
 
         await interaction.reply(`📢 Rendszerüzenet: ${msgContent}`);
@@ -121,13 +123,13 @@ app.post("/send-to-discord", (req, res) => {
   }
 });
 
-// === EZT HASZNÁLJA A JÁTÉK (Törli az adatot olvasás után) ===
+// === EZT HASZNÁLJA A JÁTÉK (Törli az adatot olvasás után - NE NÉZD BÖNGÉSZŐBEN) ===
 app.get("/get-from-discord", (req, res) => {
   res.json(gameQueue);
   gameQueue = []; 
 });
 
-// === EZT HASZNÁLD TE A BÖNGÉSZŐBEN (NEM törli az adatot) ===
+// === EZT HASZNÁLD TE A BÖNGÉSZŐBEN (NEM törli az adatot - ITT LÁTOD A LOGOT) ===
 app.get("/history", (req, res) => {
   res.json(fullHistory);
 });
