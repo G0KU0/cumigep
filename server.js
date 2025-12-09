@@ -1,5 +1,4 @@
-// === BEÁLLÍTÁSOK (Töltsd ki!) ===
-// Vagy hagyd így, ha Render Environment változókat használsz (AJÁNLOTT)
+// === BEÁLLÍTÁSOK ===
 require('dotenv').config();
 const TOKEN = process.env.DISCORD_TOKEN; 
 const CHANNEL_ID = process.env.CHANNEL_ID; 
@@ -17,76 +16,83 @@ const app = express();
 app.use(bodyParser.json());
 app.use(cors());
 
-// Álcázó oldal
-app.get("/", (req, res) => { res.send("SYSTEM ONLINE"); });
-
-let gameQueue = [];
+// KÉT LISTÁT HASZNÁLUNK MOSTANTÓL:
+let gameQueue = [];   // Ez a játéké (törlődik olvasás után)
+let fullHistory = []; // Ez a weboldalé (NEM törlődik, itt látod a logot)
 let typingUsers = {};
 
-// === 1. SLASH COMMAND REGISZTRÁCIÓ ===
+// === FŐOLDAL (Segítség) ===
+app.get("/", (req, res) => { 
+    res.send(`
+    <html>
+        <body style="background:black; color:white; font-family:monospace;">
+            <h1>SYSTEM ONLINE</h1>
+            <p>Jatek kapcsolat: <a href="/get-from-discord" style="color:yellow">/get-from-discord</a> (Ez torli az adatot)</p>
+            <p>WEBES NAPLO: <a href="/history" style="color:lime">/history</a> (ITT NEZD AZ UZENETEKET!)</p>
+        </body>
+    </html>
+    `); 
+});
+
+// === SLASH COMMAND ===
 const commands = [
     new SlashCommandBuilder()
         .setName('global')
-        .setDescription('Rendszerüzenet küldése a játékba (Admin)')
+        .setDescription('Rendszerüzenet küldése (Admin)')
         .addStringOption(option => 
-            option.setName('szoveg')
-                .setDescription('Az üzenet tartalma')
-                .setRequired(true))
+            option.setName('szoveg').setDescription('Uzenet').setRequired(true))
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-// === 2. BOT INDÍTÁSA ÉS PARANCSOK BETÖLTÉSE ===
 client.once("ready", async () => {
   console.log("Bot Online: " + client.user.tag);
-  
   try {
-      console.log('Slash parancsok frissítése...');
-      // Ez regisztrálja a parancsot a botnak
       await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-      console.log('Siker! Használd a /global parancsot Discordon.');
-  } catch (error) {
-      console.error(error);
-  }
+      console.log('Parancsok regisztralva.');
+  } catch (error) { console.error(error); }
 });
 
-// === 3. INTERAKCIÓ KEZELÉS (AMIKOR BEÍROD A PARANCSOT) ===
+// Üzenet hozzáadása mindkét listához
+function addToQueues(name, text) {
+    const msgObj = { name: name, text: text, time: new Date().toLocaleTimeString() };
+    
+    // 1. Játéknak
+    gameQueue.push(msgObj);
+    
+    // 2. Webes naplónak (Maximum 20 db-ot tárolunk)
+    fullHistory.push(msgObj);
+    if (fullHistory.length > 20) fullHistory.shift();
+    
+    console.log("Uj uzenet bekerult:", name, text);
+}
+
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
-
     if (interaction.commandName === 'global') {
-        // Ellenőrizzük, hogy van-e joga (pl. Admin)
-        // Ha bárkinek engedni akarod, vedd ki ezt a feltételt:
         if (!interaction.member.permissions.has("Administrator")) {
-            return interaction.reply({ content: 'Nincs jogod ehhez!', ephemeral: true });
+            return interaction.reply({ content: 'Nincs jogod!', ephemeral: true });
         }
-
         const msgContent = interaction.options.getString('szoveg');
         
-        // Hozzáadjuk a listához "SYSTEM" névvel
-        gameQueue.push({
-            name: "SYSTEM", // Ez a kulcsszó!
-            text: msgContent
-        });
+        // HOZZÁADJUK A LISTÁHOZ
+        addToQueues("SYSTEM", msgContent);
 
-        // Válasz Discordon
-        await interaction.reply(`📢 **Rendszerüzenet elküldve:** ${msgContent}`);
-        
-        // Opcionális: Kiírhatja a chat csatornára is, hogy ott is látsszon
+        await interaction.reply(`📢 Rendszerüzenet: ${msgContent}`);
         const channel = client.channels.cache.get(CHANNEL_ID);
         if (channel) channel.send(`🚨 **RENDSZERÜZENET:** ${msgContent}`);
     }
 });
 
-// Sima chat figyelés
 client.on("messageCreate", (message) => {
   if (message.author.bot) return;
   if (message.channel.id !== CHANNEL_ID) return;
-  gameQueue.push({ name: message.author.username, text: message.content });
-  if (gameQueue.length > 20) gameQueue.shift();
+  
+  addToQueues(message.author.username, message.content);
 });
 
 // --- API ---
+
 app.post("/typing", (req, res) => {
     const { name } = req.body;
     if (name) typingUsers[name] = Date.now();
@@ -115,9 +121,15 @@ app.post("/send-to-discord", (req, res) => {
   }
 });
 
+// === EZT HASZNÁLJA A JÁTÉK (Törli az adatot olvasás után) ===
 app.get("/get-from-discord", (req, res) => {
   res.json(gameQueue);
-  gameQueue = [];
+  gameQueue = []; 
+});
+
+// === EZT HASZNÁLD TE A BÖNGÉSZŐBEN (NEM törli az adatot) ===
+app.get("/history", (req, res) => {
+  res.json(fullHistory);
 });
 
 client.login(TOKEN);
