@@ -1,4 +1,4 @@
-// === BEÁLLÍTÁSOK ===
+// === SZABY CHAT SERVER (JAVÍTOTT) ===
 require('dotenv').config();
 const TOKEN = process.env.DISCORD_TOKEN; 
 const CHANNEL_ID = process.env.CHANNEL_ID; 
@@ -16,19 +16,21 @@ const app = express();
 app.use(bodyParser.json());
 app.use(cors());
 
-// KÉT LISTÁT HASZNÁLUNK:
-let gameQueue = [];   // Ez a játéké (törlődik olvasás után)
-let fullHistory = []; // Ez a weboldalé (NEM törlődik, itt látod a logot)
+// KÉT LISTA:
+// 1. gameQueue: Ezt olvassa a játék, és olvasás után TÖRLŐDIK (hogy ne spamoljon).
+// 2. fullHistory: Ezt látod te a /history oldalon, ez NEM törlődik.
+let gameQueue = [];   
+let fullHistory = []; 
 let typingUsers = {};
 
-// === FŐOLDAL (Segítség) ===
+// === FŐOLDAL ===
 app.get("/", (req, res) => { 
     res.send(`
     <html>
         <body style="background:black; color:white; font-family:monospace;">
             <h1>SYSTEM ONLINE</h1>
-            <p>Jatek kapcsolat: <a href="/get-from-discord" style="color:yellow">/get-from-discord</a> (Ez torli az adatot)</p>
-            <p>WEBES NAPLO: <a href="/history" style="color:lime">/history</a> (ITT NEZD AZ UZENETEKET!)</p>
+            <p>Jatek kapcsolat (NE KATTINTS RA): <span style="color:red">/get-from-discord</span></p>
+            <p>WEBES LOG (EZT NEZD): <a href="/history" style="color:lime">/history</a></p>
         </body>
     </html>
     `); 
@@ -53,20 +55,18 @@ client.once("ready", async () => {
   } catch (error) { console.error(error); }
 });
 
-// EGY FÜGGVÉNY KEZELI A HOZZÁADÁST MINDKÉT LISTÁHOZ
+// LISTA KEZELÉS
 function addToQueues(name, text) {
     const msgObj = { name: name, text: text, time: new Date().toLocaleTimeString() };
     
-    // 1. Játéknak (hogy megjelenjen)
+    // Játéknak (törlődni fog olvasás után)
     gameQueue.push(msgObj);
     
-    // 2. Webes naplónak (hogy te is lásd böngészőben)
+    // Webes lognak (megmarad)
     fullHistory.push(msgObj);
+    if (fullHistory.length > 50) fullHistory.shift(); // Utolsó 50 üzenet marad meg
     
-    // Csak az utolsó 20 üzenetet tartjuk meg a weboldalon, hogy ne teljen be a memória
-    if (fullHistory.length > 20) fullHistory.shift();
-    
-    console.log("Uj uzenet bekerult:", name, text);
+    console.log("Uzenet erkezett:", name, text);
 }
 
 client.on('interactionCreate', async interaction => {
@@ -76,10 +76,7 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: 'Nincs jogod!', ephemeral: true });
         }
         const msgContent = interaction.options.getString('szoveg');
-        
-        // ELMENTJÜK
         addToQueues("SYSTEM", msgContent);
-
         await interaction.reply(`📢 Rendszerüzenet: ${msgContent}`);
         const channel = client.channels.cache.get(CHANNEL_ID);
         if (channel) channel.send(`🚨 **RENDSZERÜZENET:** ${msgContent}`);
@@ -89,11 +86,10 @@ client.on('interactionCreate', async interaction => {
 client.on("messageCreate", (message) => {
   if (message.author.bot) return;
   if (message.channel.id !== CHANNEL_ID) return;
-  
   addToQueues(message.author.username, message.content);
 });
 
-// --- API ---
+// --- API VÉGPONTOK ---
 
 app.post("/typing", (req, res) => {
     const { name } = req.body;
@@ -123,13 +119,13 @@ app.post("/send-to-discord", (req, res) => {
   }
 });
 
-// === EZT HASZNÁLJA A JÁTÉK (Törli az adatot olvasás után - NE NÉZD BÖNGÉSZŐBEN) ===
+// === EZT HÍVJA A LUA SCRIPT (FONTOS: TÖRLI A LISTÁT!) ===
 app.get("/get-from-discord", (req, res) => {
   res.json(gameQueue);
-  gameQueue = []; 
+  gameQueue = []; // EZT NE TÖRÖLD KI, KÜLÖNBEN SPAMOLNI FOG A JÁTÉK!
 });
 
-// === EZT HASZNÁLD TE A BÖNGÉSZŐBEN (NEM törli az adatot - ITT LÁTOD A LOGOT) ===
+// === EZT NÉZD TE A BÖNGÉSZŐBEN ===
 app.get("/history", (req, res) => {
   res.json(fullHistory);
 });
